@@ -1,68 +1,96 @@
 # Cognimosity Backend
 
-> **API proxy for the Cognimosity-Plan mobile app** — generates AI-powered learning roadmaps with Redis caching for optimal performance.
+> **API proxy for the Cognimosity-Plan mobile app** — generates AI-powered learning roadmaps with a two-phase, lazy-loading architecture. Streaming JSON, Redis caching, Mermaid diagrams, and image query metadata.
 
 ---
 
 ## Architecture
 
 ```
-Mobile App ──POST /api/roadmap──► Next.js Route Handler
-                                       │
-                                       ▼
-                                  ┌──────────┐
-                                  │ Redis KV  │──── cache hit? ──► return cached JSON
-                                  └──────────┘
-                                       │ cache miss
-                                       ▼
-                                  ┌──────────┐
-                                  │Google AI │──► generateObject (Zod schema)
-                                  │ (Gemini) │──► save to Redis
-                                  └──────────┘──► return generated JSON
+Mobile App                              Next.js Backend
+──────────                              ───────────────
+
+Phase 1: Structure
+POST /api/roadmap ──────────────────►  streamObject (Gemini)
+  { prompt }                            → Generates skeleton only:
+  ← streaming JSON chunks                 IDs, titles, descriptions,
+     OR cached JSON (instant)              prerequisites, index
+
+Phase 2: Module Content (on-demand)
+POST /api/roadmap/module ───────────►  streamObject (Gemini)
+  { roadmapId, moduleId,               → Generates rich content:
+    moduleTitle, roadmapTopic }            Markdown body, Mermaid diagrams,
+  ← streaming JSON chunks                 image queries, key takeaways,
+     OR cached JSON (instant)              sources
 ```
 
 ### How It Works
 
-1. **Receive** — A `POST` request arrives with a `{ "prompt": "..." }` body.
-2. **Normalize** — The prompt is trimmed and lowercased to create a deterministic cache key.
-3. **Cache Check** — Vercel KV (Redis) is queried for an existing roadmap.
-4. **Cache Hit** — If found, the cached roadmap is returned instantly (`source: "cache"`).
-5. **Cache Miss** — The Google (Gemini) API is called via `generateObject` with a strict Zod schema to produce a structured roadmap, which is then cached and returned (`source: "generated"`).
+1. **Phase 1 — Structure**: A `POST /api/roadmap` request generates only the high-level roadmap skeleton (8–15 nodes with titles, descriptions, prerequisites). Takes ~2–3 seconds. The mobile app renders the interactive SVG canvas using its own Bézier layout engine.
+
+2. **Phase 2 — Content**: When a user taps a node, `POST /api/roadmap/module` generates detailed learning material for just that single module — comprehensive Markdown with embedded Mermaid diagrams, image search queries, and sources. Takes ~3–5 seconds.
+
+3. **Caching**: Both endpoints cache results in Redis. Cache hits return normal JSON (`Content-Type: application/json`). Cache misses stream partial JSON chunks (`Content-Type: text/plain; charset=utf-8`). The mobile app checks response headers to decide how to parse.
+
+4. **Cost Efficiency**: Content is only generated when requested. If a user quits after module 1, you never pay for modules 2–15.
 
 ---
 
 ## Tech Stack
 
-| Layer            | Technology                        |
-| ---------------- | --------------------------------- |
+| Layer            | Technology                          |
+| ---------------- | ----------------------------------- |
 | Framework        | Next.js 16 (App Router, TypeScript) |
-| AI Integration   | Vercel AI SDK (`ai`, `@ai-sdk/google`) |
-| Cache / Database | Upstash Redis (`@upstash/redis`)  |
-| Validation       | Zod                               |
-| Deployment       | Vercel                            |
+| AI Integration   | Vercel AI SDK (`ai`, `@ai-sdk/google`) — `streamObject` |
+| Cache / Database | Upstash Redis (`@upstash/redis`)    |
+| Validation       | Zod                                 |
+| Deployment       | Vercel                              |
 
 ---
 
-## Data Schema
+## Data Schemas
 
-The API enforces a strict Zod schema on all generated roadmaps:
+### Phase 1: Roadmap Structure
 
 ```typescript
-RoadmapSchema {
-  id: string           // UUID for the roadmap
-  topic: string        // The user's requested subject
-  nodes: [             // 5–7 sequential learning modules
+RoadmapStructureSchema {
+  id: string              // UUID for the roadmap
+  topic: string           // The user's requested subject
+  totalModules: number    // Total node count (8–15)
+  estimatedHours: number  // Rough total time estimate
+  nodes: [
     {
-      id: string       // UUID for the node
-      label: string    // Sub-topic title (e.g., "React Hooks")
-      material: {
-        markdownBody: string   // Rich Markdown learning content
-        sources: [             // Exactly 2 authoritative resources
-          { title: string, url: string }
-        ]
-      }
+      id: string          // UUID for the node
+      index: number       // 0-based position
+      label: string       // Module title
+      description: string // 1-2 sentence preview
+      prerequisites: []   // Array of prerequisite node IDs
     }
   ]
+}
+```
+
+### Phase 2: Module Content
+
+```typescript
+ModuleContentSchema {
+  moduleId: string           // Matches the requested module's ID
+  markdownBody: string       // Rich Markdown (2000+ words) with inline Mermaid blocks
+  mermaidDiagrams: [         // Standalone Mermaid.js diagrams
+    { title: string, code: string }
+  ]
+  imageQueries: [            // For client-side Unsplash/Pexels fetching
+    {
+      alt: string,           // Alt text
+      query: string,         // Highly specific search query
+      placement: "hero" | "inline" | "sidebar"
+    }
+  ]
+  keyTakeaways: string[]     // 3-5 bullet summary
+  sources: [                 // 3 authoritative resources
+    { title: string, url: string }
+  ]
+  estimatedMinutes: number   // Reading time for this module
 }
 ```
 
@@ -124,7 +152,7 @@ The server starts at `http://localhost:3000`.
 
 ### `POST /api/roadmap`
 
-Generate or retrieve a cached learning roadmap.
+Generate or retrieve a cached roadmap **structure** (Phase 1).
 
 #### Request
 
@@ -134,7 +162,7 @@ curl -X POST http://localhost:3000/api/roadmap \
   -d '{"prompt": "Learn React from scratch"}'
 ```
 
-#### Response (Cache Hit)
+#### Response — Cache Hit (`Content-Type: application/json`)
 
 ```json
 {
@@ -142,42 +170,88 @@ curl -X POST http://localhost:3000/api/roadmap \
   "data": {
     "id": "550e8400-e29b-41d4-a716-446655440000",
     "topic": "Learn React from scratch",
-    "nodes": [ ... ]
+    "totalModules": 12,
+    "estimatedHours": 25,
+    "nodes": [
+      {
+        "id": "6ba7b810-...",
+        "index": 0,
+        "label": "JavaScript Fundamentals",
+        "description": "Master the core JS concepts that React builds upon...",
+        "prerequisites": []
+      }
+    ],
+    "createdAt": 1720460000000
   }
 }
 ```
 
-#### Response (Cache Miss → Generated)
+#### Response — Cache Miss (`Content-Type: text/plain; charset=utf-8`)
+
+Streams partial JSON chunks as the structure generates (~2–3 seconds).
+
+---
+
+### `POST /api/roadmap/module`
+
+Generate or retrieve cached **content** for a single module (Phase 2).
+
+#### Request
+
+```bash
+curl -X POST http://localhost:3000/api/roadmap/module \
+  -H "Content-Type: application/json" \
+  -d '{
+    "roadmapId": "550e8400-e29b-41d4-a716-446655440000",
+    "moduleId": "6ba7b810-...",
+    "moduleTitle": "JavaScript Fundamentals",
+    "roadmapTopic": "Learn React from scratch",
+    "context": "This is the first module (index 0) with no prerequisites."
+  }'
+```
+
+#### Response — Cache Hit (`Content-Type: application/json`)
 
 ```json
 {
-  "source": "generated",
+  "source": "cache",
   "data": {
-    "id": "6ba7b810-9dad-11d1-80b4-00c04fd430c8",
-    "topic": "Learn React from scratch",
-    "nodes": [
+    "moduleId": "6ba7b810-...",
+    "markdownBody": "## JavaScript Fundamentals\n\n...",
+    "mermaidDiagrams": [
+      { "title": "JS Engine Pipeline", "code": "flowchart LR\n  A[Source Code] --> B[Parser]..." }
+    ],
+    "imageQueries": [
       {
-        "id": "...",
-        "label": "JavaScript Fundamentals",
-        "material": {
-          "markdownBody": "## JavaScript Fundamentals\n\n...",
-          "sources": [
-            { "title": "MDN JavaScript Guide", "url": "https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide" },
-            { "title": "JavaScript.info", "url": "https://javascript.info/" }
-          ]
-        }
+        "alt": "JavaScript engine internals",
+        "query": "v8 javascript engine architecture diagram technical illustration",
+        "placement": "hero"
       }
-    ]
+    ],
+    "keyTakeaways": ["Variables and scoping...", "..."],
+    "sources": [
+      { "title": "MDN JavaScript Guide", "url": "https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide" }
+    ],
+    "estimatedMinutes": 45,
+    "createdAt": 1720460000000
   }
 }
 ```
 
+#### Response — Cache Miss (`Content-Type: text/plain; charset=utf-8`)
+
+Streams partial JSON chunks as the content generates (~3–5 seconds).
+
+---
+
 #### Error Responses
 
-| Status | Body                                                        | Cause                          |
-| ------ | ----------------------------------------------------------- | ------------------------------ |
-| `400`  | `{ "error": "A non-empty 'prompt' string is required..." }` | Missing or empty prompt        |
-| `500`  | `{ "error": "Roadmap generation failed.", "details": "..." }` | Gemini API or Redis failure    |
+| Status | Body                                                                      | Cause                           |
+| ------ | ------------------------------------------------------------------------- | ------------------------------- |
+| `400`  | `{ "error": "A non-empty 'prompt' string is required..." }`              | Missing or empty prompt         |
+| `400`  | `{ "error": "Missing required fields: 'roadmapId', 'moduleId'..." }`    | Missing module request fields   |
+| `500`  | `{ "error": "Roadmap generation failed.", "details": "..." }`           | Gemini API or Redis failure     |
+| `500`  | `{ "error": "Module content generation failed.", "details": "..." }`    | Gemini API or Redis failure     |
 
 ---
 
@@ -200,11 +274,16 @@ cognimosity-backend/
 ├── app/
 │   ├── api/
 │   │   └── roadmap/
-│   │       └── route.ts      ← The single API endpoint
+│   │       ├── route.ts         ← Phase 1: Roadmap structure endpoint
+│   │       ├── module/
+│   │       │   └── route.ts     ← Phase 2: Module content endpoint
+│   │       ├── schemas.ts       ← Shared Zod schemas
+│   │       ├── cors.ts          ← CORS utilities
+│   │       └── redis.ts         ← Redis client & caching helpers
 │   ├── layout.tsx
 │   └── page.tsx
-├── .env.example               ← Template for environment variables
-├── .env.local                 ← Your secrets (gitignored)
+├── .env.example                  ← Template for environment variables
+├── .env.local                    ← Your secrets (gitignored)
 ├── .gitignore
 ├── next.config.ts
 ├── package.json

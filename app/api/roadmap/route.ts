@@ -1,157 +1,87 @@
-import { generateObject } from "ai";
+import { streamObject } from "ai";
 import { google } from "@ai-sdk/google";
-import { Redis } from "@upstash/redis";
+import { RoadmapStructureSchema, type RoadmapStructure } from "./schemas";
+import { cacheGet, cacheSet } from "./redis";
+import { optionsResponse, jsonResponse, errorResponse, withCors } from "./cors";
 
-// Support both UPSTASH_REDIS and legacy KV environment variable prefixes
-const redisUrl = process.env.UPSTASH_REDIS_REST_URL || process.env.KV_REST_API_URL || "";
-const redisToken = process.env.UPSTASH_REDIS_REST_TOKEN || process.env.KV_REST_API_TOKEN || "";
-
-const redis = new Redis({
-  url: redisUrl,
-  token: redisToken,
-});
-import { z } from "zod";
-
-export const maxDuration = 60; // 60-second max execution time for LLM generation on Vercel
-
-// ─── Data Schema ───────────────────────────────────────────────────────────────
-
-const MaterialSchema = z.object({
-  markdownBody: z
-    .string()
-    .describe(
-      "Comprehensive learning material formatted in Markdown. Include code blocks, bullet points, and explanations."
-    ),
-  sources: z
-    .array(
-      z.object({
-        title: z.string().describe("Title of the resource"),
-        url: z.string().url().describe("A real, highly authoritative URL"),
-      })
-    )
-    .describe(
-      "Exactly 2 high-quality web resources related to this specific node."
-    ),
-});
-
-const NodeSchema = z.object({
-  id: z.string().describe("A unique UUID for this node."),
-  label: z
-    .string()
-    .describe("The title of the sub-topic, e.g., 'React Hooks'"),
-  material: MaterialSchema,
-});
-
-const RoadmapSchema = z.object({
-  id: z.string().describe("A unique UUID for the entire roadmap."),
-  topic: z
-    .string()
-    .describe("The overarching subject requested by the user."),
-  nodes: z
-    .array(NodeSchema)
-    .describe(
-      "An ordered array of exactly 5 to 7 sequential learning modules."
-    ),
-});
-
-// Infer the TypeScript type from the schema for internal use
-type Roadmap = z.infer<typeof RoadmapSchema> & { createdAt: number };
-
-// ─── CORS Headers ──────────────────────────────────────────────────────────────
-
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, Authorization",
-};
+export const maxDuration = 60; // 60-second max execution time on Vercel
 
 // ─── OPTIONS (CORS Preflight) ──────────────────────────────────────────────────
 
 export async function OPTIONS() {
-  return new Response(null, { status: 204, headers: corsHeaders });
+  return optionsResponse();
 }
 
 // ─── POST Handler ──────────────────────────────────────────────────────────────
+// Phase 1: Generate ONLY the roadmap structure skeleton.
+// Returns streaming JSON on cache miss, normal JSON on cache hit.
 
 export async function POST(request: Request) {
   try {
-    // 1. Extract and validate the prompt from the request body
+    // 1. Extract and validate the prompt
     const body = await request.json();
     const { prompt } = body as { prompt?: string };
 
     if (!prompt || typeof prompt !== "string" || prompt.trim().length === 0) {
-      return Response.json(
-        { error: "A non-empty 'prompt' string is required in the request body." },
-        { status: 400, headers: corsHeaders }
+      return errorResponse(
+        "A non-empty 'prompt' string is required in the request body.",
+        undefined,
+        400,
       );
     }
 
-    // 2. Normalize the prompt to create a deterministic cache key
+    // 2. Normalize the prompt for a deterministic cache key
     const normalizedPrompt = prompt.trim().toLowerCase();
-    const cacheKey = `roadmap:${normalizedPrompt}`;
+    const cacheKey = `roadmap:v2:${normalizedPrompt}`;
 
-    // 3. Check Redis for a cached roadmap
-    let cached: Roadmap | null = null;
-    try {
-      if (redisUrl && redisToken) {
-        cached = await redis.get<Roadmap>(cacheKey);
-      }
-    } catch (e) {
-      console.warn("KV cache get skipped:", e);
-    }
+    // 3. Check Redis for a cached roadmap structure
+    type CachedRoadmap = RoadmapStructure & { createdAt: number };
+    const cached = await cacheGet<CachedRoadmap>(cacheKey);
 
     if (cached) {
-      return Response.json(
-        { source: "cache", data: cached },
-        { status: 200, headers: corsHeaders }
-      );
+      // Cache hit — return normal JSON with explicit Content-Type
+      return jsonResponse({ source: "cache", data: cached });
     }
 
-    // 4. Cache miss — generate a new roadmap via Google (Gemini)
-    const result = await generateObject({
-      model: google("gemini-3.1-flash-lite-preview"),
-      schema: RoadmapSchema,
-      prompt: `You are an expert curriculum designer. Generate a detailed learning roadmap for the following topic: "${prompt}".
+    // 4. Cache miss — stream a new roadmap structure via Gemini
+    const result = streamObject({
+      model: google("gemini-2.5-flash"),
+      schema: RoadmapStructureSchema,
+      prompt: `You are an expert curriculum designer and course architect. Generate a comprehensive learning roadmap structure for the following topic: "${prompt}".
 
-The roadmap must contain exactly 5 to 7 sequential learning modules (nodes). Each node must have:
-- A unique UUID as its id
-- A clear, concise label for the sub-topic
-- Comprehensive learning material in Markdown format (markdownBody) with code blocks, bullet points, and thorough explanations
-- Exactly 2 high-quality, real, authoritative source URLs with titles
+CRITICAL RULES:
+- Generate between 8 and 15 sequential learning modules (nodes).
+- Each node needs a unique UUID (v4 format), a 0-based index, a clear label, and a 1-2 sentence description that entices the learner.
+- The "prerequisites" array for each node should contain the IDs of nodes that must be completed first. Foundational modules have an empty prerequisites array.
+- Most modules should have 1-2 prerequisites forming a logical dependency graph. Allow some parallel tracks where topics are independent.
+- Order modules logically from foundational concepts to advanced topics.
+- The "totalModules" field must match the length of the nodes array.
+- Provide a realistic "estimatedHours" for the entire roadmap (typically 10-40 hours depending on topic complexity).
+- Make descriptions engaging and specific — not generic filler.
 
-The entire roadmap must also have a unique UUID and a topic field matching the user's request.
-
-Ensure the nodes are ordered logically from foundational concepts to advanced topics.`,
+The user's topic: "${prompt}"`,
+      onFinish: async ({ object }) => {
+        // Persist the completed structure to Redis for future cache hits
+        if (object) {
+          const roadmap: CachedRoadmap = {
+            ...object,
+            createdAt: Date.now(),
+          };
+          await cacheSet(cacheKey, roadmap);
+        }
+      },
     });
 
-    const roadmap: Roadmap = {
-      ...result.object,
-      createdAt: Date.now(),
-    };
-
-    // 5. Save to Redis for future requests (no expiration — persistent cache)
-    try {
-      if (redisUrl && redisToken) {
-        await redis.set(cacheKey, roadmap);
-      }
-    } catch (e) {
-      console.warn("KV cache set skipped:", e);
-    }
-
-    // 6. Return the generated roadmap
-    return Response.json(
-      { source: "generated", data: roadmap },
-      { status: 200, headers: corsHeaders }
-    );
+    // Stream the response with CORS headers
+    // toTextStreamResponse sets Content-Type: text/plain; charset=utf-8
+    const streamResponse = result.toTextStreamResponse();
+    return withCors(streamResponse);
   } catch (error: unknown) {
-    console.error("[roadmap] Generation failed:", error);
+    console.error("[roadmap] Structure generation failed:", error);
 
     const message =
       error instanceof Error ? error.message : "An unexpected error occurred.";
 
-    return Response.json(
-      { error: "Roadmap generation failed.", details: message },
-      { status: 500, headers: corsHeaders }
-    );
+    return errorResponse("Roadmap generation failed.", message);
   }
 }
