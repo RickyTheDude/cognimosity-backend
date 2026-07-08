@@ -1,6 +1,8 @@
 import { generateObject } from "ai";
 import { google } from "@ai-sdk/google";
-import { kv } from "@vercel/kv";
+import { Redis } from "@upstash/redis";
+
+const redis = Redis.fromEnv();
 import { z } from "zod";
 
 export const maxDuration = 60; // 60-second max execution time for LLM generation on Vercel
@@ -84,8 +86,8 @@ export async function POST(request: Request) {
     // 3. Check Redis for a cached roadmap
     let cached: Roadmap | null = null;
     try {
-      if (process.env.KV_REST_API_URL && process.env.KV_REST_API_TOKEN) {
-        cached = await kv.get<Roadmap>(cacheKey);
+      if (process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN) {
+        cached = await redis.get<Roadmap>(cacheKey);
       }
     } catch (e) {
       console.warn("KV cache get skipped:", e);
@@ -119,8 +121,8 @@ Ensure the nodes are ordered logically from foundational concepts to advanced to
 
     // 5. Save to Redis for future requests (no expiration — persistent cache)
     try {
-      if (process.env.KV_REST_API_URL && process.env.KV_REST_API_TOKEN) {
-        await kv.set(cacheKey, roadmap);
+      if (process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN) {
+        await redis.set(cacheKey, roadmap);
       }
     } catch (e) {
       console.warn("KV cache set skipped:", e);

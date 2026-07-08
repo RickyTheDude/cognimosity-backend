@@ -37,7 +37,7 @@ Mobile App ──POST /api/roadmap──► Next.js Route Handler
 | ---------------- | --------------------------------- |
 | Framework        | Next.js 16 (App Router, TypeScript) |
 | AI Integration   | Vercel AI SDK (`ai`, `@ai-sdk/google`) |
-| Cache / Database | Vercel KV (`@vercel/kv`)          |
+| Cache / Database | Upstash Redis (`@upstash/redis`)  |
 | Validation       | Zod                               |
 | Deployment       | Vercel                            |
 
@@ -75,7 +75,7 @@ RoadmapSchema {
 - **Node.js** ≥ 18
 - **npm** (comes with Node.js)
 - A **Google Gemini API key** ([aistudio.google.com](https://aistudio.google.com/))
-- A **Vercel KV store** ([vercel.com/storage/kv](https://vercel.com/storage/kv))
+- An **Upstash Redis database** (available via Vercel Integrations or upstash.com)
 
 ### 1. Clone & Install
 
@@ -88,7 +88,7 @@ npm install
 ### 2. Install Required Dependencies
 
 ```bash
-npm install ai @ai-sdk/google @vercel/kv zod
+npm install ai @ai-sdk/google @upstash/redis zod
 ```
 
 ### 3. Configure Environment Variables
@@ -104,13 +104,11 @@ Edit `.env.local`:
 ```env
 GOOGLE_GENERATIVE_AI_API_KEY=your-api-key-here
 
-KV_URL=redis://...
-KV_REST_API_URL=https://...
-KV_REST_API_TOKEN=...
-KV_REST_API_READ_ONLY_TOKEN=...
+UPSTASH_REDIS_REST_URL=https://...
+UPSTASH_REDIS_REST_TOKEN=...
 ```
 
-> **Note:** When you link a Vercel KV store through the Vercel dashboard, the `KV_*` variables are automatically populated in your Vercel project settings.
+> **Note:** When you add Upstash Redis from the Vercel Integrations marketplace, the `UPSTASH_REDIS_*` variables are automatically populated in your Vercel project settings.
 
 ### 4. Run Locally
 
@@ -189,7 +187,7 @@ curl -X POST http://localhost:3000/api/roadmap \
 
 1. Push to GitHub.
 2. Import the repository in [vercel.com](https://vercel.com).
-3. Add a **KV Store** under Storage in your Vercel project.
+3. Add **Upstash Redis** from Vercel Integrations to your project.
 4. Add `GOOGLE_GENERATIVE_AI_API_KEY` to your project's Environment Variables.
 5. Deploy. ✅
 
