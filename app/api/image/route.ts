@@ -1,4 +1,9 @@
+// ─── CORS Headers ──────────────────────────────────────────────────────────────
 import { jsonResponse, errorResponse, optionsResponse } from "../roadmap/cors";
+
+// Force Vercel to deploy this specific route to the US East (Washington D.C.) region.
+// This bypasses regional DNS blocks (e.g., Hugging Face being blocked by ISPs in India/Mumbai).
+export const preferredRegion = "iad1";
 
 // ─── OPTIONS (CORS Preflight) ──────────────────────────────────────────────────
 
