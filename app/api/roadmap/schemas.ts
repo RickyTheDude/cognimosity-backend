@@ -75,9 +75,9 @@ export const ImageQuerySchema = z.object({
   query: z
     .string()
     .describe(
-      "A highly specific image search query string for Unsplash/Pexels. " +
-      "Be descriptive and precise — e.g., 'server rack cable management data center' " +
-      "instead of 'computers'. Include technical terms, visual descriptors, and context.",
+      "A highly specific and detailed image generation prompt for Nano Banana Lite. " +
+      "Be extremely descriptive about the subject, concept to generate high relevancy images. " +
+      "e.g., 'An accurate diagram of magnets with their magnetic field from N to S' or 'A realistic labelled diagram of the Cell'.",
     ),
   placement: z
     .enum(["hero", "inline", "sidebar"])

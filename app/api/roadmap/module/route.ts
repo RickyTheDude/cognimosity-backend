@@ -85,9 +85,9 @@ CONTENT REQUIREMENTS:
    - Each diagram must have a descriptive title.
    - Ensure Mermaid syntax is valid and renders correctly.
 
-3. **imageQueries** (2-4 queries): Provide highly specific image search query strings for Unsplash/Pexels.
-   - Be extremely descriptive and precise: "students in uniform studying in classroom india" or "physics lab equipment".
-   - Include technical terms, visual descriptors, colors, and context.
+3. **imageQueries** (2-4 queries): Provide highly specific image generation prompts for Nano Banana Lite (an AI image generator).
+   - Be extremely descriptive and precise. E.g., "An accurate diagram of magnets with their magnetic field from N to S' or 'A realistic labelled diagram of the Cell'.".
+   - Include art style, technical terms, visual descriptors, colors, lighting, and context.
    - Specify appropriate placement: "hero" for the module banner, "inline" for within content, "sidebar" for supplementary visuals.
 
 4. **keyTakeaways** (3-5 bullets): Concise, actionable takeaways the learner should remember for their exams or foundational knowledge.
