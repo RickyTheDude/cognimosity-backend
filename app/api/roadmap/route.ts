@@ -55,7 +55,7 @@ const RoadmapSchema = z.object({
 });
 
 // Infer the TypeScript type from the schema for internal use
-type Roadmap = z.infer<typeof RoadmapSchema>;
+type Roadmap = z.infer<typeof RoadmapSchema> & { createdAt: number };
 
 // ─── CORS Headers ──────────────────────────────────────────────────────────────
 
@@ -124,7 +124,10 @@ The entire roadmap must also have a unique UUID and a topic field matching the u
 Ensure the nodes are ordered logically from foundational concepts to advanced topics.`,
     });
 
-    const roadmap = result.object;
+    const roadmap: Roadmap = {
+      ...result.object,
+      createdAt: Date.now(),
+    };
 
     // 5. Save to Redis for future requests (no expiration — persistent cache)
     try {
