@@ -75,7 +75,7 @@ export const ImageQuerySchema = z.object({
   query: z
     .string()
     .describe(
-      "A highly specific and detailed image generation prompt for Nano Banana Lite. " +
+      "A highly specific and detailed image generation prompt for the FLUX.1-schnell model. " +
       "Be extremely descriptive about the subject, concept to generate high relevancy images. " +
       "e.g., 'An accurate diagram of magnets with their magnetic field from N to S' or 'A realistic labelled diagram of the Cell'.",
     ),
