@@ -45,7 +45,7 @@ export async function POST(request: Request) {
 
     // 4. Cache miss — stream a new roadmap structure via Gemini
     const result = streamObject({
-      model: google("gemini-3-flash"),
+      model: google("gemini-3.1-flash-lite-preview"),
       schema: RoadmapStructureSchema,
       prompt: `You are an expert curriculum designer and course architect focusing on the Indian school education system (CBSE/ICSE/NCERT standards) helping students ace their board exams. Generate a comprehensive learning roadmap structure for the following topic: "${prompt}".
 

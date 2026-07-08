@@ -63,7 +63,7 @@ export async function POST(request: Request) {
       : "";
 
     const result = streamObject({
-      model: google("gemini-3-flash"),
+      model: google("gemini-3.1-flash-lite-preview"),
       schema: ModuleContentSchema,
       prompt: `You are an expert educator focused on the Indian school education system (like CBSE/ICSE/NCERT boards), creating in-depth learning material for a single module within a course on "${roadmapTopic}". The target audience is Indian school-going students.
 
