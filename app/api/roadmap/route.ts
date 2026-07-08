@@ -45,19 +45,19 @@ export async function POST(request: Request) {
 
     // 4. Cache miss — stream a new roadmap structure via Gemini
     const result = streamObject({
-      model: google("gemini-2.5-flash"),
+      model: google("gemini-3-flash"),
       schema: RoadmapStructureSchema,
-      prompt: `You are an expert curriculum designer and course architect. Generate a comprehensive learning roadmap structure for the following topic: "${prompt}".
+      prompt: `You are an expert curriculum designer and course architect focusing on the Indian school education system (CBSE/ICSE/NCERT standards) helping students ace their board exams. Generate a comprehensive learning roadmap structure for the following topic: "${prompt}".
 
 CRITICAL RULES:
 - Generate between 8 and 15 sequential learning modules (nodes).
-- Each node needs a unique UUID (v4 format), a 0-based index, a clear label, and a 1-2 sentence description that entices the learner.
+- Each node needs a unique UUID (v4 format), a 0-based index, a clear label, and a 1-2 sentence description that entices a school-going student.
 - The "prerequisites" array for each node should contain the IDs of nodes that must be completed first. Foundational modules have an empty prerequisites array.
 - Most modules should have 1-2 prerequisites forming a logical dependency graph. Allow some parallel tracks where topics are independent.
-- Order modules logically from foundational concepts to advanced topics.
+- Order modules logically from foundational concepts to advanced topics appropriate for school students.
 - The "totalModules" field must match the length of the nodes array.
 - Provide a realistic "estimatedHours" for the entire roadmap (typically 10-40 hours depending on topic complexity).
-- Make descriptions engaging and specific — not generic filler.
+- Make descriptions engaging, specific, and relatable to Indian school contexts (e.g., relating concepts to daily life or exams) — not generic filler.
 
 The user's topic: "${prompt}"`,
       onFinish: async ({ object }) => {
