@@ -55,7 +55,14 @@ export async function POST(req: Request) {
     return jsonResponse({ base64 });
   } catch (error: unknown) {
     console.error("[image] Backend image generation error:", error);
-    const message = error instanceof Error ? error.message : "Internal Server Error";
+    let message = error instanceof Error ? error.message : "Internal Server Error";
+    
+    // Node.js fetch errors often hide the real issue in the `cause` property
+    if (error instanceof Error && error.cause) {
+      const causeMsg = error.cause instanceof Error ? error.cause.message : String(error.cause);
+      message += ` (Cause: ${causeMsg})`;
+    }
+
     return errorResponse("Internal Server Error", message, 500);
   }
 }
