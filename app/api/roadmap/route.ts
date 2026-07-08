@@ -102,7 +102,7 @@ export async function POST(request: Request) {
 
     // 4. Cache miss — generate a new roadmap via Google (Gemini)
     const result = await generateObject({
-      model: google("gemini-2.5-flash"),
+      model: google("gemini-3.1-flash-lite-preview"),
       schema: RoadmapSchema,
       prompt: `You are an expert curriculum designer. Generate a detailed learning roadmap for the following topic: "${prompt}".
 
