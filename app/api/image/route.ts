@@ -27,13 +27,17 @@ export async function POST(req: Request) {
     
     // Call the Gemini Nano Banana endpoint
     const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite-image:generateImages?key=${apiKey}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite-image:generateContent?key=${apiKey}`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          instances: [{ prompt }],
-          parameters: { sampleCount: 1, aspectRatio: "16:9" }
+          contents: [{
+            parts: [{ text: prompt }]
+          }],
+          generationConfig: {
+            candidateCount: 1
+          }
         }),
       }
     );
