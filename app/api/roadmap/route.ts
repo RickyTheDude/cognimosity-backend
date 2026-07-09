@@ -20,7 +20,7 @@ export async function POST(request: Request) {
   try {
     // 1. Extract and validate the prompt
     const body = await request.json();
-    const { prompt } = body as { prompt?: string };
+    const { prompt, audience } = body as { prompt?: string; audience?: string };
 
     if (!prompt || typeof prompt !== "string" || prompt.trim().length === 0) {
       return errorResponse(
@@ -32,7 +32,8 @@ export async function POST(request: Request) {
 
     // 2. Normalize the prompt for a deterministic cache key
     const normalizedPrompt = prompt.trim().toLowerCase();
-    const cacheKey = `roadmap:v2:${normalizedPrompt}`;
+    const safeAudience = audience || "default";
+    const cacheKey = `roadmap:v2:${safeAudience}:${normalizedPrompt}`;
 
     // 3. Check Redis for a cached roadmap structure
     type CachedRoadmap = RoadmapStructure & { createdAt: number };
@@ -44,10 +45,39 @@ export async function POST(request: Request) {
     }
 
     // 4. Cache miss — stream a new roadmap structure via Gemini
-    const result = streamObject({
-      model: google("gemini-3.1-flash-lite-preview"),
-      schema: RoadmapStructureSchema,
-      prompt: `You are an expert curriculum designer and course architect focusing on the Indian school education system (CBSE/ICSE/NCERT standards) helping students ace their board exams. Generate a comprehensive learning roadmap structure for the following topic: "${prompt}".
+    let systemPrompt = "";
+
+    if (audience === "university_student") {
+      systemPrompt = `You are an expert technical curriculum designer and senior engineering mentor. Generate a comprehensive learning roadmap structure for a university student or undergrad junior developer for the following topic: "${prompt}".
+
+CRITICAL RULES:
+- Generate between 8 and 15 sequential learning modules (nodes).
+- Each node needs a unique UUID (v4 format), a 0-based index, a clear label, and a 1-2 sentence description that clearly explains the technical concepts and real-world application.
+- The "prerequisites" array for each node should contain the IDs of nodes that must be completed first. Foundational modules have an empty prerequisites array.
+- Most modules should have 1-2 prerequisites forming a logical dependency graph. Allow some parallel tracks where topics are independent.
+- Order modules logically from foundational concepts to advanced practical implementation skills.
+- The "totalModules" field must match the length of the nodes array.
+- Provide a realistic "estimatedHours" for the entire roadmap (typically 10-40 hours depending on topic complexity).
+- Make descriptions clear, covering the "why" and "how" to emphasize deep understanding and coverage, suitable for an undergrad junior developer.
+
+The user's topic: "${prompt}"`;
+    } else if (audience === "working_professional") {
+      systemPrompt = `You are an expert technical curriculum designer and senior engineering mentor. Generate a highly focused, advanced learning roadmap for a working professional aiming to upskill in the following topic: "${prompt}".
+
+CRITICAL RULES:
+- Generate between 8 and 15 sequential learning modules (nodes).
+- Each node needs a unique UUID (v4 format), a 0-based index, a clear label, and a 1-2 sentence description that is concise, practical, and focused on industry standards, architecture, and real-world implementation.
+- The "prerequisites" array for each node should contain the IDs of nodes that must be completed first. Foundational modules have an empty prerequisites array.
+- Most modules should have 1-2 prerequisites forming a logical dependency graph. Allow some parallel tracks where topics are independent.
+- Order modules logically from foundational concepts to advanced practical implementation skills, skipping trivial basics unless necessary.
+- The "totalModules" field must match the length of the nodes array.
+- Provide a realistic "estimatedHours" for the entire roadmap (typically 10-40 hours depending on topic complexity).
+- Make descriptions highly professional, focusing on "how it solves business problems" and "best practices".
+
+The user's topic: "${prompt}"`;
+    } else {
+      // Default to school_student if audience is 'school_student' or not provided
+      systemPrompt = `You are an expert curriculum designer and course architect focusing on the Indian school education system (CBSE/ICSE/NCERT standards) helping students ace their board exams. Generate a comprehensive learning roadmap structure for the following topic: "${prompt}".
 
 CRITICAL RULES:
 - Generate between 8 and 15 sequential learning modules (nodes).
@@ -59,7 +89,13 @@ CRITICAL RULES:
 - Provide a realistic "estimatedHours" for the entire roadmap (typically 10-40 hours depending on topic complexity).
 - Make descriptions engaging, specific, and relatable to Indian school contexts (e.g., relating concepts to daily life or exams) — not generic filler.
 
-The user's topic: "${prompt}"`,
+The user's topic: "${prompt}"`;
+    }
+
+    const result = streamObject({
+      model: google("gemini-3.1-flash-lite-preview"),
+      schema: RoadmapStructureSchema,
+      prompt: systemPrompt,
       onFinish: async ({ object }) => {
         // Persist the completed structure to Redis for future cache hits
         if (object) {
